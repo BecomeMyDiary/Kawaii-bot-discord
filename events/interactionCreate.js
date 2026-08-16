@@ -124,6 +124,48 @@ module.exports = {
                     await interaction.showModal(modal);
                 }
             }
+            // ===== Help Guide Select Menu =====
+            if (interaction.isStringSelectMenu() && interaction.customId === 'help_guide_menu') {
+                const selected = interaction.values[0];
+                const currency = process.env.CURRENCY_SYMBOL || '🍩';
+
+                let embed = new EmbedBuilder().setColor('#ffb6c1');
+
+                if (selected === 'guide_earning') {
+                    embed
+                        .setAuthor({ name: '🔍 การหาเงินในเซิร์ฟเวอร์', iconURL: interaction.client.user.displayAvatarURL() })
+                        .setDescription(
+                            '• **แชทในห้องที่กำหนด** = ได้รับเงินอัตโนมัติ (เช็กด้วย `/balance`)\n' +
+                            '• **`/pick`** = กดรับเงินตอนบอทสุ่มโผล่ข้อความแจ้งเตือน\n' +
+                            '• **`/pet` & `/snuggle`** = หาเงินฟรี มี Cooldown ตามที่เซิร์ฟเวอร์ตั้งไว้\n' +
+                            '• **`/balance`** = เพื่อดูเงินคงเหลือและสัตว์เลี้ยงที่มี'
+                        );
+                }
+                else if (selected === 'guide_shop') {
+                    embed
+                        .setAuthor({ name: '🏪 ร้านค้า Role & สัตว์เลี้ยง', iconURL: interaction.client.user.displayAvatarURL() })
+                        .setDescription(
+                            '🏆 **ร้านค้า Role**\n' +
+                            '• `/shop view` ดูของทั้งหมด (ต้องซื้อ Bronze ➔ Silver ➔ Gold ตามลำดับ ห้ามข้ามขั้น)\n\n' +
+                            '🐾 **ร้านสัตว์เลี้ยง**\n' +
+                            '• พิมพ์ `/petshop` เพื่อดูและซื้อสัตว์เลี้ยง\n' +
+                            '• มีสัตว์เลี้ยงแล้วจะปลดล็อกคำสั่งพิเศษเพิ่ม!'
+                        );
+                }
+                else if (selected === 'guide_gambling') {
+                    embed
+                        .setAuthor({ name: '🎲 เกมเดิมพันเสี่ยงโชค', iconURL: interaction.client.user.displayAvatarURL() })
+                        .setDescription(
+                            '🎰 **คำสั่งเล่นเดิมพัน**\n' +
+                            '• **`/coinflip`** = โยนเหรียญเดิมพันคนเดียว (Heads / Tails)\n' +
+                            '• **`/group-coinflip`** = เปิดห้องโยนเหรียญแทงร่วมกับเพื่อนในเซิร์ฟเวอร์ (รับ 2x)\n' +
+                            '• **`/slots`** = หมุนสล็อตลุ้นรางวัลใหญ่'
+                        );
+                }
+
+                // อัปเดต Embed บนข้อความเดิมทันทีโดยไม่ต้องส่งข้อความใหม่
+                await interaction.update({ embeds: [embed] });
+            }
         }
 
         // 2b. จัดการ Button (coinflip)
