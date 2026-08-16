@@ -1,0 +1,10 @@
+services:
+  bot:
+    build: .
+    image: diary-bot
+    container_name: discord-bot-app
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./economy.db:/usr/src/app/economy.db
