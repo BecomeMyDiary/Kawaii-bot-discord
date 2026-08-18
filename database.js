@@ -146,6 +146,16 @@ function deleteCoinflipSession(sessionId) {
     activeCoinflipSessions.delete(sessionId);
 }
 
+// ดึงเวลา Cooldown ของผู้ใช้
+function getUserCooldowns(userId) {
+    let cooldowns = db.prepare('SELECT * FROM user_cooldowns WHERE userId = ?').get(userId);
+    if (!cooldowns) {
+        db.prepare('INSERT INTO user_cooldowns (userId, nextPick, nextPet, nextSnuggle) VALUES (?, 0, 0, 0)').run(userId);
+        cooldowns = { userId, nextPick: 0, nextPet: 0, nextSnuggle: 0 };
+    }
+    return cooldowns;
+}
+
 module.exports = {
     getUser,
     updateBalance,
@@ -159,5 +169,6 @@ module.exports = {
     addCoinflipBet,
     resolveCoinflipSession,
     deleteCoinflipSession,
-    db
+    db,
+    getUserCooldowns
 };

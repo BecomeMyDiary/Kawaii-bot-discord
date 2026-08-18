@@ -1,19 +1,55 @@
-const { SlashCommandBuilder, EmbedBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder } = require('discord.js');
-const { addPoints } = require('../database.js');
+const {
+    SlashCommandBuilder,
+    EmbedBuilder,
+    ButtonBuilder,
+    ButtonStyle,
+    ActionRowBuilder,
+    MessageFlags
+} = require('discord.js');
+const { addPoints, setNextSnuggleTime, getSettings, db } = require('../database.js');
 
 function getRandomPoints(min, max) {
     return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-const COOLDOWN_TIME = 60 * 60 * 1000;
+function formatRemaining(ms) {
+    const totalSeconds = Math.floor(ms / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    if (hours > 0) return `${hours} ชั่วโมง ${minutes} นาที ${seconds} วินาที`;
+    if (minutes > 0) return `${minutes} นาที ${seconds} วินาที`;
+    return `${seconds} วินาที`;
+}
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('snuggle')
         .setDescription('กอดน้อง'),
     async execute(interaction) {
-        const points = getRandomPoints(30, 60);
+        const now = Date.now();
+
+        // ดึงการตั้งค่า cooldown ของเซิร์ฟเวอร์
+        const settings = getSettings(interaction.guildId);
+        const cooldownMs = (settings.snuggle_cooldown || 60) * 60 * 1000; // นาที → มิลลิวินาที
+
+        // เช็ค cooldown จาก database
+        const cooldownData = db.prepare('SELECT nextSnuggle FROM user_cooldowns WHERE userId = ?').get(interaction.user.id);
+
+        if (cooldownData && cooldownData.nextSnuggle > now) {
+            const remaining = cooldownData.nextSnuggle - now;
+            return interaction.reply({
+                content: `⏳ ยังอยู่ใน Cooldown! ต้องรออีก **${formatRemaining(remaining)}** ก่อนจะ snuggle ได้อีกครั้ง`,
+                flags: MessageFlags.Ephemeral
+            });
+        }
+
+        // หมด cooldown แล้ว — ให้แต้มและตั้ง cooldown ใหม่
+        const points = getRandomPoints(settings.snuggle_min || 30, settings.snuggle_max || 60);
         addPoints(interaction.user.id, points);
+        setNextSnuggleTime(interaction.user.id, now + cooldownMs);
+
+        const customId = `remind_snuggle_${interaction.user.id}_${Date.now()}`;
 
         const embed = new EmbedBuilder()
             .setColor('#ffb6c1')
@@ -27,8 +63,6 @@ module.exports = {
                 `*tip: click the button below to get reminded when the cooldown is over!*`
             );
 
-        const customId = `remind_me_${interaction.user.id}_${Date.now()}`;
-
         const remindButton = new ButtonBuilder()
             .setCustomId(customId)
             .setLabel('Remind me!')
@@ -36,29 +70,30 @@ module.exports = {
 
         const row = new ActionRowBuilder().addComponents(remindButton);
 
-        await interaction.reply({
+        const response = await interaction.reply({
             embeds: [embed],
-            components: [row]
+            components: [row],
+            withResponse: true
         });
 
-        // --- เพิ่ม Collector หลังจากส่งข้อความตอบกลับ ---
-
-        const filter = i => i.customId === customId;
-        const collector = interaction.channel.createMessageComponentCollector({ filter, time: COOLDOWN_TIME });
+        const message = response.resource.message;
+        const filter = i => i.customId === customId && i.user.id === interaction.user.id;
+        const collector = message.createMessageComponentCollector({ filter, time: cooldownMs });
 
         collector.on('collect', async i => {
             try {
-                // ปิดการใช้งานปุ่มทันทีหลังถูกกด
                 remindButton.setDisabled(true).setLabel('⟡ Reminder set!');
                 await i.update({ components: [new ActionRowBuilder().addComponents(remindButton)] });
 
-                // แจ้งเตือนผู้ใช้ว่าตั้งเวลาแล้ว (ส่งแบบลับๆ ไม่ให้คนอื่นเห็น)
                 await i.followUp({
                     content: '⏰ ตั้งเวลาเรียบร้อยแล้ว! ระบบจะส่ง DM ไปหาเมื่อหมดเวลา Cooldown',
-                    ephemeral: true // เพื่อให้เห็นแค่เจ้าของคำสั่ง
+                    flags: MessageFlags.Ephemeral
                 });
 
-                // หน่วงเวลาตามเวลา Cooldown แล้วส่งข้อความเตือน
+                // คำนวณเวลาที่เหลือจริงๆ จาก DB
+                const cd = db.prepare('SELECT nextSnuggle FROM user_cooldowns WHERE userId = ?').get(interaction.user.id);
+                const delay = cd ? Math.max(0, cd.nextSnuggle - Date.now()) : cooldownMs;
+
                 setTimeout(async () => {
                     const reminderEmbed = new EmbedBuilder()
                         .setColor('#ffb6c1')
@@ -66,10 +101,8 @@ module.exports = {
                         .setDescription('หมดเวลาคูลดาวน์ของคำสั่ง `/snuggle` แล้วนะ! กลับมากอดน้องได้แล้ว~ 🐾')
                         .setTimestamp();
                     try {
-                        // พยายามส่ง DM
                         await interaction.user.send({ embeds: [reminderEmbed] });
                     } catch (err) {
-                        // ถ้าผู้ใช้ปิด DM หรือมีปัญหา ให้ส่งเตือนในแชทสาธารณะแทน
                         const reminderPublicEmbed = new EmbedBuilder()
                             .setColor('#ffb6c1')
                             .setTitle('🔔 Hey it\'s time to snuggle again!')
@@ -77,22 +110,19 @@ module.exports = {
                             .setTimestamp();
                         await interaction.channel.send({ embeds: [reminderPublicEmbed] });
                     }
-                }, COOLDOWN_TIME);
+                }, delay);
 
             } catch (err) {
                 console.error('Error collecting button interaction:', err);
-                await i.followUp({ content: 'เกิดข้อผิดพลาดในการตั้งเตือน', ephemeral: true });
+                await i.followUp({ content: 'เกิดข้อผิดพลาดในการตั้งเตือน', flags: MessageFlags.Ephemeral });
             }
         });
 
-        collector.on('end', async collected => {
+        collector.on('end', async (collected, reason) => {
             if (collected.size === 0) {
-                // ถ้าครบเวลาแล้วไม่มีใครกดปุ่มเลย ให้ปิดการใช้งานปุ่มทิ้งไป
-                remindButton.setDisabled(true).setLabel('Cooldown ended (No one used this reminder)');
-                await interaction.editReply({ components: [new ActionRowBuilder().addComponents(remindButton)] });
+                remindButton.setDisabled(true).setLabel('Cooldown ended');
+                await message.edit({ components: [new ActionRowBuilder().addComponents(remindButton)] }).catch(() => { });
             }
         });
-
-
     },
 };

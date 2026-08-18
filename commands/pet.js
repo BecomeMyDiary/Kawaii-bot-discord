@@ -18,11 +18,7 @@ function formatRemaining(ms) {
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('pet')
-        .setDescription('ลูบหัวน้อง')
-        .addUserOption(option =>
-            option.setName('target')
-                .setDescription('คนที่ต้องการลูบหัว')
-                .setRequired(false)),
+        .setDescription('ลูบหัวน้อง'),
     async execute(interaction) {
         const now = Date.now();
 
