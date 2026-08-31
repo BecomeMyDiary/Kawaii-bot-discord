@@ -29,34 +29,5 @@ module.exports = {
         } catch (error) {
             console.error('❌ Error updating commands:', error);
         }
-
-        // ระบบ Auto-clear ห้องเสียง
-        const TARGET_CHANNEL_IDS = [
-            '1531922242546565191',
-            '1534991096059269291',
-            '1534992676582199456',
-            '1528696612006793287',
-        ];
-
-        const THREE_HOUR = 3 * 60 * 60 * 1000;
-
-        setInterval(async () => {
-            for (const channelId of TARGET_CHANNEL_IDS) {
-                try {
-                    const channel = await client.channels.fetch(channelId);
-
-                    if (channel && channel.isTextBased()) {
-                        const fetchedMessages = await channel.messages.fetch({ limit: 100 });
-
-                        if (fetchedMessages.size > 0) {
-                            await channel.bulkDelete(fetchedMessages);
-                            console.log(`[Auto-Clear] ลบข้อความในห้อง ${channel.name} สำเร็จแล้ว`);
-                        }
-                    }
-                } catch (error) {
-                    console.error(`[Auto-Clear Error] ไม่สามารถลบข้อความในห้อง ID: ${channelId} ได้:`, error);
-                }
-            }
-        }, THREE_HOUR);
     },
 };
