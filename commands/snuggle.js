@@ -6,7 +6,7 @@ const {
     ActionRowBuilder,
     MessageFlags
 } = require('discord.js');
-const { addPoints, setNextSnuggleTime, getSettings, db } = require('../database.js');
+const { addPoints, setNextSnuggleTime, getSettings, db, getGuildCurrencySymbol } = require('../database.js');
 
 function getRandomPoints(min, max) {
     return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -51,6 +51,8 @@ module.exports = {
 
         const customId = `remind_snuggle_${interaction.user.id}_${Date.now()}`;
 
+        const currency = getGuildCurrencySymbol(interaction.guildId);
+
         const embed = new EmbedBuilder()
             .setColor('#ffb6c1')
             .setAuthor({
@@ -59,7 +61,7 @@ module.exports = {
             })
             .setTitle(`Snuggle timeeeeeeeee ~ ~ ^ ^ !!!`)
             .setDescription(
-                `🐾 <@${interaction.user.id}> earned **+${points}** ${process.env.CURRENCY_SYMBOL || 'แต้ม'}\n\n` +
+                `🐾 <@${interaction.user.id}> earned **+${points}** ${currency}\n\n` +
                 `*tip: click the button below to get reminded when the cooldown is over!*`
             );
 

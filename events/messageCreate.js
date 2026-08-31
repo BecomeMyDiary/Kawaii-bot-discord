@@ -1,6 +1,6 @@
 const { Events, EmbedBuilder } = require('discord.js');
 const { createBalanceEmbed } = require('../commands/balance.js');
-const { addPoints, setNextPickTime, db } = require('../database.js');
+const { addPoints, setNextPickTime, db, getGuildCurrencySymbol } = require('../database.js');
 
 function getRandomPoints(min, max) {
     return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -39,7 +39,8 @@ module.exports = {
                 const pickCmdId = message.client.commandIds?.pick;
                 const pickMention = pickCmdId ? `</pick:${pickCmdId}>` : '`/pick`';
 
-                const sentMsg = await message.channel.send(`🎁 <@${message.author.id}>, มี pick ดรอป! กด ${pickMention} ภายใน 2 นาทีเพื่อรับ **${points}** ${process.env.CURRENCY_SYMBOL || 'แต้ม'}!`);
+                const currency = getGuildCurrencySymbol(message.guildId);
+                const sentMsg = await message.channel.send(`🎁 <@${message.author.id}>, มี pick ดรอป! กด ${pickMention} ภายใน 2 นาทีเพื่อรับ **${points}** ${currency}!`);
                 setTimeout(() => {
                     sentMsg.delete().catch(err => console.error('Failed to delete pick notification:', err));
                 }, 120 * 1000); // ลบอัตโนมัติหลัง 2 นาที

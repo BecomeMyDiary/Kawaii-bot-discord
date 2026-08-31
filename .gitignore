@@ -2,3 +2,4 @@ node_modules/
 .env
 economy.db
 *.log
+logs/

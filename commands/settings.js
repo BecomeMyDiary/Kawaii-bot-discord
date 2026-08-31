@@ -19,7 +19,12 @@ module.exports = {
             .setDescription('เลือกหัวข้อที่ต้องการตั้งค่าจากเมนูด้านล่างนี้ได้เลยครับ')
             .addFields(
                 {
-                    name: '🐾 `/pet` command',
+                    name: '� Currency',
+                    value: `• symbol: **${settings.currency_symbol || '🍩'}**`,
+                    inline: true
+                },
+                {
+                    name: '�🐾 `/pet` command',
                     value: `• amount given: between 🍩 **${settings.pet_min}** to **${settings.pet_max}**\n• cooldown: **${settings.pet_cooldown}** minutes`,
                     inline: true
                 },
@@ -41,6 +46,12 @@ module.exports = {
                     .setCustomId('settings_select_menu')
                     .setPlaceholder('choose a specific setting to edit . . . ✧')
                     .addOptions([
+                        {
+                            label: 'ตั้งค่า Currency',
+                            description: 'เปลี่ยนสัญลักษณ์เงินที่ใช้แสดงในเซิร์ฟเวอร์นี้',
+                            value: 'edit_currency',
+                            emoji: '💰'
+                        },
                         {
                             label: 'ตั้งค่า /pet',
                             description: 'เปลี่ยนช่วงคะแนนและเวลาคูลดาวน์ของคำสั่ง pet',

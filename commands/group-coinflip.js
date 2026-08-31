@@ -13,12 +13,13 @@ const {
     createCoinflipSession,
     getCoinflipSession,
     resolveCoinflipSession,
-    deleteCoinflipSession
+    deleteCoinflipSession,
+    getGuildCurrencySymbol
 } = require('../database.js');
 
 // 🔴 ปรับเป็น async และดึงข้อมูล owner ของเซิร์ฟเวอร์เพื่อนำชื่อมาแสดงใน Footer
 async function buildCoinflipEmbed(interaction, session, status = 'open') {
-    const currency = process.env.CURRENCY_SYMBOL || '🍩';
+    const currency = getGuildCurrencySymbol(interaction.guildId);
 
     let headsCount = 0, tailsCount = 0;
     let headsTotal = 0, tailsTotal = 0;
@@ -81,7 +82,7 @@ async function resolveCoinflip(client, interaction, sessionId) {
     const session = resolveCoinflipSession(sessionId);
     if (!session) return;
 
-    const currency = process.env.CURRENCY_SYMBOL || '🍩';
+    const currency = getGuildCurrencySymbol(interaction.guildId);
 
     const winSide = Math.random() < 0.5 ? 'heads' : 'tails';
     const loseSide = winSide === 'heads' ? 'tails' : 'heads';

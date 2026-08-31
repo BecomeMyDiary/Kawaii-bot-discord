@@ -1,5 +1,7 @@
+const path = require('node:path');
 const Database = require('better-sqlite3');
-const db = new Database('economy.db');
+const { dbPath } = require('./config.js');
+const db = new Database(path.resolve(__dirname, dbPath));
 
 // สร้างตารางเก็บข้อมูลผู้ใช้ (ถ้ายังไม่มี)
 db.prepare(`
@@ -66,6 +68,7 @@ function setNextSnuggleTime(userId, timestamp) {
 db.prepare(`
     CREATE TABLE IF NOT EXISTS server_settings (
         guildId TEXT PRIMARY KEY,
+        currency_symbol TEXT DEFAULT '🍩',
         pet_min INTEGER DEFAULT 5,
         pet_max INTEGER DEFAULT 15,
         pet_cooldown INTEGER DEFAULT 12,
@@ -79,7 +82,8 @@ db.prepare(`
     )
 `).run();
 
-// Migration: เพิ่มคอลัมน์ coinflip_duration ให้กับตารางเก่า
+// Migration: เพิ่มคอลัมน์ currency_symbol และ coinflip_duration ให้กับตารางเก่า
+try { db.prepare('ALTER TABLE server_settings ADD COLUMN currency_symbol TEXT DEFAULT "🍩"').run(); } catch (e) { /* คอลัมน์มีอยู่แล้ว */ }
 try { db.prepare('ALTER TABLE server_settings ADD COLUMN pick_min INTEGER DEFAULT 5').run(); } catch (e) { /* คอลัมน์มีอยู่แล้ว */ }
 try { db.prepare('ALTER TABLE server_settings ADD COLUMN pick_max INTEGER DEFAULT 15').run(); } catch (e) { /* คอลัมน์มีอยู่แล้ว */ }
 try { db.prepare('ALTER TABLE server_settings ADD COLUMN pick_cooldown INTEGER DEFAULT 12').run(); } catch (e) { /* คอลัมน์มีอยู่แล้ว */ }
@@ -90,17 +94,19 @@ function getSettings(guildId) {
     if (!settings) {
         db.prepare(`
             INSERT INTO server_settings (
-                guildId, 
-                pet_min, pet_max, pet_cooldown, 
-                snuggle_min, snuggle_max, snuggle_cooldown, 
-                pick_min, pick_max, pick_cooldown, 
+                guildId,
+                currency_symbol,
+                pet_min, pet_max, pet_cooldown,
+                snuggle_min, snuggle_max, snuggle_cooldown,
+                pick_min, pick_max, pick_cooldown,
                 coinflip_duration
-            ) 
-            VALUES (?, 5, 15, 12, 30, 60, 60, 5, 15, 12, 30)
-        `).run(guildId);
+            )
+            VALUES (?, ?, 5, 15, 12, 30, 60, 60, 5, 15, 12, 30)
+        `).run(guildId, '🍩');
 
         settings = {
             guildId,
+            currency_symbol: '🍩',
             pet_min: 5, pet_max: 15, pet_cooldown: 12,
             snuggle_min: 30, snuggle_max: 60, snuggle_cooldown: 60,
             pick_min: 5, pick_max: 15, pick_cooldown: 12,
@@ -108,6 +114,54 @@ function getSettings(guildId) {
         };
     }
     return settings;
+}
+
+function getGuildCurrencySymbol(guildId) {
+    const settings = getSettings(guildId);
+    return settings.currency_symbol || process.env.CURRENCY_SYMBOL || '🍩';
+}
+
+function updateGuildCurrencySymbol(guildId, symbol) {
+    const normalized = (symbol || '').trim();
+    const value = normalized || '🍩';
+    db.prepare('INSERT OR IGNORE INTO server_settings (guildId, currency_symbol) VALUES (?, ?)').run(guildId, value);
+    db.prepare('UPDATE server_settings SET currency_symbol = ? WHERE guildId = ?').run(value, guildId);
+    return value;
+}
+
+// ===== Pet Roles Management =====
+db.prepare(`
+    CREATE TABLE IF NOT EXISTS pet_roles (
+        guildId TEXT NOT NULL,
+        roleId TEXT NOT NULL,
+        petName TEXT NOT NULL,
+        petEmoji TEXT DEFAULT '🐾',
+        PRIMARY KEY (guildId, roleId)
+    )
+`).run();
+
+function getPetRoles(guildId) {
+    const roles = db.prepare('SELECT roleId, petName, petEmoji FROM pet_roles WHERE guildId = ? ORDER BY rowid').all(guildId);
+    return roles || [];
+}
+
+function addPetRole(guildId, roleId, petName, petEmoji = '🐾') {
+    try {
+        db.prepare('INSERT INTO pet_roles (guildId, roleId, petName, petEmoji) VALUES (?, ?, ?, ?)').run(guildId, roleId, petName, petEmoji);
+        return true;
+    } catch (e) {
+        // Role already exists
+        return false;
+    }
+}
+
+function removePetRole(guildId, roleId) {
+    const result = db.prepare('DELETE FROM pet_roles WHERE guildId = ? AND roleId = ?').run(guildId, roleId);
+    return result.changes > 0;
+}
+
+function hasPetRole(guildId, roleId) {
+    return db.prepare('SELECT 1 FROM pet_roles WHERE guildId = ? AND roleId = ?').get(guildId, roleId) !== undefined;
 }
 
 // ===== Coinflip Session (In-Memory) =====
@@ -156,6 +210,16 @@ function getUserCooldowns(userId) {
     return cooldowns;
 }
 
+// Graceful database close
+function closeDatabase() {
+    try {
+        db.close();
+        console.log('[DB] Database connection closed gracefully');
+    } catch (err) {
+        console.error('[DB] Error closing database:', err.message);
+    }
+}
+
 module.exports = {
     getUser,
     updateBalance,
@@ -164,11 +228,18 @@ module.exports = {
     setNextPetTime,
     setNextSnuggleTime,
     getSettings,
+    getGuildCurrencySymbol,
+    updateGuildCurrencySymbol,
+    getPetRoles,
+    addPetRole,
+    removePetRole,
+    hasPetRole,
     createCoinflipSession,
     getCoinflipSession,
     addCoinflipBet,
     resolveCoinflipSession,
     deleteCoinflipSession,
     db,
-    getUserCooldowns
+    getUserCooldowns,
+    closeDatabase
 };

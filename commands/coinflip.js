@@ -3,7 +3,7 @@ const {
     EmbedBuilder,
     MessageFlags
 } = require('discord.js');
-const { getUser, updateBalance } = require('../database.js');
+const { getUser, updateBalance, getGuildCurrencySymbol } = require('../database.js');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -31,7 +31,7 @@ module.exports = {
         const choice = interaction.options.getString('choice');
         const amount = interaction.options.getInteger('amount');
         const userId = interaction.user.id;
-        const currency = process.env.CURRENCY_SYMBOL || '🍩';
+        const currency = getGuildCurrencySymbol(interaction.guildId);
 
         // 1. ตรวจสอบยอดเงินของผู้เล่น
         const userData = getUser(userId);

@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder } = require('discord.js');
-const { addPoints, setNextPetTime, getSettings, db } = require('../database.js');
+const { addPoints, setNextPetTime, getSettings, db, getGuildCurrencySymbol } = require('../database.js');
 
 function getRandomPoints(min, max) {
     return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -44,6 +44,8 @@ module.exports = {
 
         const customId = `remind_pet_${interaction.user.id}_${Date.now()}`;
 
+        const currency = getGuildCurrencySymbol(interaction.guildId);
+
         const embed = new EmbedBuilder()
             .setColor('#ffb6c1')
             .setAuthor({
@@ -52,7 +54,7 @@ module.exports = {
             })
             .setTitle(`**${interaction.user.username}** petted Kawaii ~`)
             .setDescription(
-                `🐾 <@${interaction.user.id}> earned **+${points}** ${process.env.CURRENCY_SYMBOL || 'แต้ม'}\n\n` +
+                `🐾 <@${interaction.user.id}> earned **+${points}** ${currency}\n\n` +
                 `*tip: click the button below to get reminded when the cooldown is over!*`
             );
 

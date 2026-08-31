@@ -1,17 +1,32 @@
 const { Events, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, EmbedBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-const { db, getUser, updateBalance, getCoinflipSession, addCoinflipBet, getSettings } = require('../database.js');
+const { db, getUser, updateBalance, getCoinflipSession, addCoinflipBet, getSettings, getGuildCurrencySymbol, getPetRoles, addPetRole, removePetRole } = require('../database.js');
+const { createPetRolePages, createPetRolePageButtons } = require('../commands/admin-pet-roles.js');
+const logger = require('../logger.js');
 
 module.exports = {
     name: Events.InteractionCreate,
     async execute(interaction) {
-        // 1. จัดการ Slash Commands
-        if (interaction.isChatInputCommand()) {
-            const command = interaction.client.commands.get(interaction.commandName);
-
-            if (!command) {
-                console.error(`ไม่พบคำสั่ง ${interaction.commandName}`);
+        try {
+            // Validate critical interaction properties
+            if (!interaction.user || !interaction.guildId) {
+                console.warn('[WARN] Interaction missing user or guildId, skipping');
                 return;
             }
+
+            logger.debug('Interaction received', {
+                type: interaction.type,
+                user: interaction.user.id,
+                guild: interaction.guildId
+            });
+
+            // 1. จัดการ Slash Commands
+            if (interaction.isChatInputCommand()) {
+                const command = interaction.client.commands.get(interaction.commandName);
+
+                if (!command) {
+                    console.error(`ไม่พบคำสั่ง ${interaction.commandName}`);
+                    return;
+                }
 
             try {
                 await command.execute(interaction);
@@ -30,7 +45,25 @@ module.exports = {
             if (interaction.customId === 'settings_select_menu') {
                 const selectedValue = interaction.values[0];
 
-                if (selectedValue === 'edit_pet') {
+                if (selectedValue === 'edit_currency') {
+                    const modal = new ModalBuilder()
+                        .setCustomId('modal_edit_currency')
+                        .setTitle('ตั้งค่า Currency Symbol');
+
+                    const symbolInput = new TextInputBuilder()
+                        .setCustomId('currency_symbol_input')
+                        .setLabel('สัญลักษณ์เงิน (เช่น 🍩, 💰, 🪙)')
+                        .setStyle(TextInputStyle.Short)
+                        .setRequired(false)
+                        .setPlaceholder('🍩');
+
+                    modal.addComponents(
+                        new ActionRowBuilder().addComponents(symbolInput)
+                    );
+
+                    await interaction.showModal(modal);
+                }
+                else if (selectedValue === 'edit_pet') {
                     const modal = new ModalBuilder()
                         .setCustomId('modal_edit_pet')
                         .setTitle('ตั้งค่าคำสั่ง /pet');
@@ -127,7 +160,7 @@ module.exports = {
             // ===== Help Guide Select Menu =====
             if (interaction.isStringSelectMenu() && interaction.customId === 'help_guide_menu') {
                 const selected = interaction.values[0];
-                const currency = process.env.CURRENCY_SYMBOL || '🍩';
+                const currency = getGuildCurrencySymbol(interaction.guildId);
 
                 let embed = new EmbedBuilder().setColor('#ffb6c1');
 
@@ -168,7 +201,67 @@ module.exports = {
             }
         }
 
-        // 2b. จัดการ Button (coinflip)
+        // 2a. จัดการ RoleSelectMenu (pet roles)
+        else if (interaction.isRoleSelectMenu()) {
+            if (interaction.customId.startsWith('pet_role_select_')) {
+                const guildId = interaction.values.length > 0 ? interaction.guild.id : null;
+                
+                if (!guildId || interaction.values.length === 0) {
+                    return interaction.reply({ content: '❌ กรุณาเลือก role ก่อน', ephemeral: true });
+                }
+
+                const selectedRoleId = interaction.values[0];
+
+                // เปิด Modal เพื่อให้ input ชื่อ pet และ emoji
+                const modal = new ModalBuilder()
+                    .setCustomId(`pet_role_modal_${selectedRoleId}`)
+                    .setTitle('เพิ่ม Pet Role ใหม่');
+
+                const petNameInput = new TextInputBuilder()
+                    .setCustomId('pet_name')
+                    .setLabel('ชื่อสัตว์เลี้ยง (เช่น น้องหมา, น้องแมว)')
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true)
+                    .setMaxLength(30);
+
+                const petEmojiInput = new TextInputBuilder()
+                    .setCustomId('pet_emoji')
+                    .setLabel('Emoji ของสัตว์เลี้ยง (เช่น 🐶, 🐱)')
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(false)
+                    .setMaxLength(5)
+                    .setPlaceholder('🐾');
+
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(petNameInput),
+                    new ActionRowBuilder().addComponents(petEmojiInput)
+                );
+
+                await interaction.showModal(modal);
+            }
+
+            // ===== Pet Roles Delete Select =====
+            else if (interaction.customId.startsWith('pet_role_delete_select_')) {
+                const guildId = interaction.customId.replace('pet_role_delete_select_', '');
+                const selectedRoleId = interaction.values[0];
+
+                // เก็บข้อมูลเพื่อใช้ใน confirm button
+                if (!interaction.client.pendingPetRoleDelete) {
+                    interaction.client.pendingPetRoleDelete = new Map();
+                }
+                interaction.client.pendingPetRoleDelete.set(`${guildId}_${interaction.user.id}`, selectedRoleId);
+
+                const embed = new EmbedBuilder()
+                    .setColor('#ff6b6b')
+                    .setTitle('⚠️ ยืนยันการลบ')
+                    .setDescription(`คุณแน่ใจว่าต้องการลบ pet role <@&${selectedRoleId}> หรือไม่?`)
+                    .setFooter({ text: 'การลบนี้ไม่สามารถกู้คืนได้' });
+
+                await interaction.reply({ embeds: [embed], ephemeral: true });
+            }
+        }
+
+        // 2b. จัดการ Button (coinflip and pet roles)
         else if (interaction.isButton()) {
             const customId = interaction.customId;
 
@@ -200,9 +293,115 @@ module.exports = {
                 modal.addComponents(new ActionRowBuilder().addComponents(amountInput));
                 await interaction.showModal(modal);
             }
+            
+            // ===== Pet Roles Management Buttons =====
+            else if (customId.startsWith('pet_roles_page_')) {
+                const pagePayload = customId.replace('pet_roles_page_', '');
+                const [guildId, pageRaw] = pagePayload.split('_');
+                const currentPage = Number.isInteger(Number(pageRaw)) ? Number(pageRaw) : 0;
+                const pages = createPetRolePages(guildId);
+                const safePage = Math.max(0, Math.min(currentPage, pages.length - 1));
+
+                const pageRow = createPetRolePageButtons(guildId, safePage, pages.length);
+                const row1 = new ActionRowBuilder().addComponents(
+                    new (require('discord.js')).RoleSelectMenuBuilder()
+                        .setCustomId(`pet_role_select_${guildId}`)
+                        .setPlaceholder('เลือก role ที่ต้องการ add เป็น pet role')
+                        .setMinValues(1)
+                        .setMaxValues(5)
+                );
+                const row2 = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`pet_role_add_${guildId}`)
+                        .setLabel('➕ Add Pet Role')
+                        .setStyle(ButtonStyle.Success),
+                    new ButtonBuilder()
+                        .setCustomId(`pet_role_remove_${guildId}`)
+                        .setLabel('➖ Remove Pet Role')
+                        .setStyle(ButtonStyle.Danger)
+                );
+
+                await interaction.update({
+                    embeds: [pages[safePage]],
+                    components: [pageRow, row1, row2],
+                    ephemeral: true
+                });
+            }
+
+            else if (customId.startsWith('pet_role_add_')) {
+                return interaction.reply({ content: '👉 กรุณาเลือก role จาก dropdown ด้านบนแล้วกรอกข้อมูลสัตว์เลี้ยง', ephemeral: true });
+            }
+            
+            else if (customId.startsWith('pet_role_remove_')) {
+                const guildId = customId.replace('pet_role_remove_', '');
+                const petRoles = getPetRoles(guildId);
+                
+                if (petRoles.length === 0) {
+                    return interaction.reply({ content: '❌ ยังไม่มี pet roles สำหรับลบ', ephemeral: true });
+                }
+
+                // สร้าง dropdown สำหรับเลือก role ที่จะลบ
+                const roleSelectDelete = new (require('discord.js')).RoleSelectMenuBuilder()
+                    .setCustomId(`pet_role_delete_select_${guildId}`)
+                    .setPlaceholder('เลือก pet role ที่ต้องการลบ')
+                    .setMinValues(1)
+                    .setMaxValues(1);
+
+                const deleteRow = new ActionRowBuilder().addComponents(roleSelectDelete);
+                const confirmBtn = new ButtonBuilder()
+                    .setCustomId(`pet_role_confirm_delete_${guildId}`)
+                    .setLabel('✅ Confirm Delete')
+                    .setStyle(ButtonStyle.Danger);
+                
+                const cancelBtn = new ButtonBuilder()
+                    .setCustomId('pet_role_cancel_delete')
+                    .setLabel('❌ Cancel')
+                    .setStyle(ButtonStyle.Secondary);
+
+                const confirmRow = new ActionRowBuilder().addComponents(confirmBtn, cancelBtn);
+
+                await interaction.reply({
+                    content: '🗑️ เลือก pet role ที่ต้องการลบ:',
+                    components: [deleteRow, confirmRow],
+                    ephemeral: true
+                });
+            }
+
+            else if (customId.startsWith('pet_role_confirm_delete_')) {
+                const guildId = customId.replace('pet_role_confirm_delete_', '');
+                const key = `${guildId}_${interaction.user.id}`;
+
+                if (!interaction.client.pendingPetRoleDelete || !interaction.client.pendingPetRoleDelete.has(key)) {
+                    return interaction.reply({ content: '❌ ไม่มีการเลือก role ในการลบ', ephemeral: true });
+                }
+
+                const roleId = interaction.client.pendingPetRoleDelete.get(key);
+                const success = removePetRole(guildId, roleId);
+
+                if (success) {
+                    interaction.client.pendingPetRoleDelete.delete(key);
+                    const embed = new EmbedBuilder()
+                        .setColor('#51cf66')
+                        .setTitle('✅ ลบ Pet Role สำเร็จ!')
+                        .setDescription(`<@&${roleId}> ถูกลบออกจากระบบ pet แล้ว`)
+                        .setTimestamp();
+
+                    return interaction.reply({ embeds: [embed], ephemeral: true });
+                } else {
+                    return interaction.reply({ content: '❌ ไม่สามารถลบ pet role ได้', ephemeral: true });
+                }
+            }
+
+            else if (customId === 'pet_role_cancel_delete') {
+                const key = Array.from(interaction.client.pendingPetRoleDelete || new Map()).find(([k]) => k.endsWith(interaction.user.id));
+                if (key) {
+                    interaction.client.pendingPetRoleDelete.delete(key[0]);
+                }
+                return interaction.reply({ content: '❌ ยกเลิกการลบแล้ว', ephemeral: true });
+            }
         }
 
-        // 3. จัดการ Modal Submit (ของ settings และ coinflip)
+        // 3. จัดการ Modal Submit (ของ settings, coinflip, และ pet roles)
         else if (interaction.isModalSubmit()) {
             const guildId = interaction.guild.id;
 
@@ -225,7 +424,7 @@ module.exports = {
 
                 const amountRaw = interaction.fields.getTextInputValue('coinflip_amount');
                 const amount = parseInt(amountRaw);
-                const currency = process.env.CURRENCY_SYMBOL || '🍩';
+                const currency = getGuildCurrencySymbol(interaction.guildId);
 
                 if (isNaN(amount) || amount <= 0) {
                     return interaction.reply({ content: '❌ กรุณากรอกจำนวนเงินที่ถูกต้อง (ตัวเลขมากกว่า 0)', ephemeral: true });
@@ -293,8 +492,57 @@ module.exports = {
                 return;
             }
 
+            // ===== Pet Roles Modal =====
+            if (interaction.customId.startsWith('pet_role_modal_')) {
+                const roleId = interaction.customId.replace('pet_role_modal_', '');
+                const petName = interaction.fields.getTextInputValue('pet_name').trim();
+                const petEmoji = interaction.fields.getTextInputValue('pet_emoji').trim() || '🐾';
+
+                if (!petName) {
+                    return interaction.reply({ content: '❌ ชื่อสัตว์เลี้ยงไม่สามารถว่างได้', ephemeral: true });
+                }
+
+                // ตรวจสอบว่า role นี้มีอยู่ใน server หรือไม่
+                try {
+                    const role = await interaction.guild.roles.fetch(roleId);
+                    if (!role) {
+                        return interaction.reply({ content: '❌ Role ที่เลือกไม่พบในเซิร์ฟเวอร์นี้', ephemeral: true });
+                    }
+                } catch (err) {
+                    return interaction.reply({ content: '❌ ไม่สามารถดึงข้อมูล role ได้', ephemeral: true });
+                }
+
+                // เพิ่ม pet role เข้าฐานข้อมูล
+                const success = addPetRole(guildId, roleId, petName, petEmoji);
+                
+                if (success) {
+                    const embed = new EmbedBuilder()
+                        .setColor('#ffb6c1')
+                        .setTitle('✅ เพิ่ม Pet Role สำเร็จ!')
+                        .setDescription(`${petEmoji} **${petName}** - <@&${roleId}> เพิ่มเข้าระบบ pet แล้ว`)
+                        .setTimestamp();
+
+                    return interaction.reply({ embeds: [embed], ephemeral: true });
+                } else {
+                    return interaction.reply({ content: `⚠️ Role <@&${roleId}> มีอยู่ในระบบแล้ว`, ephemeral: true });
+                }
+            }
+
             // ===== Settings Modals =====
-            if (interaction.customId === 'modal_edit_pet') {
+            if (interaction.customId === 'modal_edit_currency') {
+                const rawSymbol = interaction.fields.getTextInputValue('currency_symbol_input');
+                const currentSettings = getSettings(guildId);
+                const symbol = rawSymbol.trim() !== '' ? rawSymbol.trim() : (currentSettings.currency_symbol || '🍩');
+
+                if (!symbol || symbol.length > 8) {
+                    return interaction.reply({ content: '❌ กรุณากรอกสัญลักษณ์เงินให้ถูกต้อง', ephemeral: true });
+                }
+
+                db.prepare('UPDATE server_settings SET currency_symbol = ? WHERE guildId = ?').run(symbol, guildId);
+
+                await interaction.reply({ content: `✅ บันทึกสัญลักษณ์เงินสำหรับเซิร์ฟเวอร์นี้เป็น **${symbol}** แล้ว`, ephemeral: true });
+            }
+            else if (interaction.customId === 'modal_edit_pet') {
                 const rawMin = interaction.fields.getTextInputValue('pet_min_input');
                 const rawMax = interaction.fields.getTextInputValue('pet_max_input');
                 const rawCooldown = interaction.fields.getTextInputValue('pet_cooldown_input');
@@ -353,6 +601,26 @@ module.exports = {
                     .run(minPoints, maxPoints, cooldown, guildId);
 
                 await interaction.reply({ content: '✅ บันทึกการตั้งค่า `/pick` สำเร็จเรียบร้อย!', ephemeral: true });
+            }
+        }
+        } catch (err) {
+            logger.error('Interaction handler error', {
+                error: err.message,
+                stack: err.stack,
+                user: interaction.user?.id,
+                type: interaction.type
+            });
+
+            // Notify user safely
+            try {
+                if (!interaction.replied && !interaction.deferred) {
+                    await interaction.reply({ 
+                        content: '❌ เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง',
+                        ephemeral: true 
+                    });
+                }
+            } catch (replyErr) {
+                console.error('[ERROR] Failed to send error reply:', replyErr.message);
             }
         }
     },

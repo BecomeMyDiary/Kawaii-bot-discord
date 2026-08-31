@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { db, addPoints } = require('../database.js');
+const { db, addPoints, getGuildCurrencySymbol } = require('../database.js');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -19,9 +19,10 @@ module.exports = {
                 addPoints(interaction.user.id, activePick.points);
                 interaction.client.activePicks.delete(interaction.user.id);
 
+                const currency = getGuildCurrencySymbol(interaction.guildId);
                 const embed = new EmbedBuilder()
                     .setColor('#ffb6c1')
-                    .setDescription(`🎁 **${interaction.user.displayName}** ทำการ pick สำเร็จ! ได้รับโบนัสคะแนนพิเศษ **+${activePick.points}** ${process.env.CURRENCY_SYMBOL || 'แต้ม'}!`);
+                    .setDescription(`🎁 **${interaction.user.displayName}** ทำการ pick สำเร็จ! ได้รับโบนัสคะแนนพิเศษ **+${activePick.points}** ${currency}!`);
                 await interaction.reply({ embeds: [embed] });
                 setTimeout(async () => {
                     await interaction.deleteReply().catch(err => console.error('Failed to delete message:', err));

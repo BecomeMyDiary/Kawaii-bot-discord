@@ -1,10 +1,11 @@
-require('dotenv').config();
 const fs = require('node:fs');
 const path = require('node:path');
 const { Client, Collection, GatewayIntentBits } = require('discord.js');
+const { discordToken } = require('./config.js');
+const logger = require('./logger.js');
 
-// โหลด token จาก .env
-const TOKEN = process.env.DISCORD_TOKEN;
+// โหลด token จาก .env / config
+const TOKEN = discordToken;
 
 // 1. ตั้งค่า Client
 const client = new Client({
@@ -51,3 +52,46 @@ for (const file of eventFiles) {
 
 // 4. เข้าสู่ระบบ (Login)
 client.login(TOKEN);
+
+// 5. Global Error Handlers
+process.on('unhandledRejection', (err) => {
+    console.error('[FATAL] Unhandled Rejection:', err);
+    logger.error('Unhandled Rejection', { error: err.message, stack: err.stack });
+});
+
+process.on('uncaughtException', (err) => {
+    console.error('[FATAL] Uncaught Exception:', err);
+    logger.error('Uncaught Exception', { error: err.message, stack: err.stack });
+    gracefulShutdown('Uncaught exception detected');
+});
+
+client.on('error', (err) => {
+    console.error('[BOT ERROR]', err);
+    logger.error('Bot error', { error: err.message });
+});
+
+// 6. Graceful Shutdown Handler
+function gracefulShutdown(reason = 'SIGTERM') {
+    console.log(`\n[SHUTDOWN] Reason: ${reason}`);
+    logger.info('Bot shutting down', { reason });
+    
+    // Close Discord connection
+    if (client.isReady()) {
+        client.destroy();
+    }
+    
+    // Close database
+    try {
+        const { closeDatabase } = require('./database.js');
+        closeDatabase();
+    } catch (err) {
+        console.error('[ERROR] Failed to close database:', err.message);
+    }
+    
+    logger.info('Graceful shutdown complete');
+    process.exit(0);
+}
+
+// Listen for termination signals
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
